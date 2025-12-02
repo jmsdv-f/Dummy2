@@ -1,0 +1,195 @@
+################################################################################
+# GitHub Actions Workflow: Build Lambda Layers
+#
+# Purpose: Automatically build Lambda layers when requirements.txt files change
+#          and commit the built dependencies back to the repository
+#
+# Triggers:
+#   - Push to main branch with changes to lambda_layers/**/requirements.txt
+#   - Manual workflow dispatch
+#
+# What it does:
+#   1. Detects which layers have changed requirements.txt files
+#   2. Builds only the changed layers using Docker
+#   3. Commits the built packages back to the repository
+#   4. Skips CI on the automated commit to prevent infinite loops
+################################################################################
+
+name: Build Lambda Layers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/core/lambdas/layers/**/requirements.txt'
+      - 'infrastructure/support/lambdas/layers/**/requirements.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  build-layers:
+    name: Build and Package Lambda Layers
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: ⚙️ Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: 🔍 Detect changed layers
+        id: changed-layers
+        run: |
+          # For push events, detect changed requirements.txt files
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep 'infrastructure/.*/lambdas/layers/.*/requirements.txt' || true)
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "ℹ️ No requirements.txt files changed"
+            echo "layers=" >> $GITHUB_OUTPUT
+          else
+            echo "📝 Changed files:"
+            echo "$CHANGED_FILES"
+            
+            # Extract unique layer directories
+            LAYERS=$(echo "$CHANGED_FILES" | xargs -n1 dirname | sort -u | xargs -n1 basename | tr '\n' ' ')
+            echo ""
+            echo "🎯 Layers to build: $LAYERS"
+            echo "layers=$LAYERS" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: 📦 Pull AWS Lambda Docker image
+        if: steps.changed-layers.outputs.layers != ''
+        run: |
+          echo "Pulling AWS Lambda Python 3.12 image..."
+          docker pull public.ecr.aws/lambda/python:3.12
+      
+      - name: 🔨 Build Lambda layers
+        if: steps.changed-layers.outputs.layers != ''
+        run: |
+          chmod +x scripts/build_layers.sh
+          
+          echo "=========================================="
+          echo "Building Lambda Layers"
+          echo "=========================================="
+          
+          # Build each changed layer
+          for layer in ${{ steps.changed-layers.outputs.layers }}; do
+            echo ""
+            echo "🏗️ Building layer: $layer"
+            if ./scripts/build_layers.sh "$layer"; then
+              echo "✅ Successfully built: $layer"
+            else
+              echo "❌ Failed to build: $layer"
+              exit 1
+            fi
+          done
+          
+          echo ""
+          echo "=========================================="
+          echo "All layers built successfully!"
+          echo "=========================================="
+      
+      - name: 🔎 Check for changes
+        id: git-check
+        run: |
+          # Stage all changes in lambda_layers directory
+          git add infrastructure/*/lambdas/layers/
+          
+          # Check if there are staged changes
+          if git diff --staged --quiet; then
+            echo "ℹ️ No changes to commit"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Changes detected"
+            echo ""
+            echo "📊 Summary of changes:"
+            git diff --staged --stat
+            echo ""
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: 📤 Commit and push changes
+        if: steps.git-check.outputs.has_changes == 'true'
+        run: |
+          # Create detailed commit message
+          COMMIT_MSG="chore: auto-build Lambda layers [skip ci]
+          
+          🤖 Automated build triggered by requirements.txt changes
+          
+          Built layers: ${{ steps.changed-layers.outputs.layers }}
+          Trigger: ${{ github.event.head_commit.message }}
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.run_number }}"
+          
+          git commit -m "$COMMIT_MSG"
+          
+          echo "📤 Pushing changes to repository..."
+          git push
+          
+          echo "✅ Changes committed and pushed successfully"
+      
+      - name: 📋 Generate Summary
+        if: always()
+        run: |
+          echo "## 🚀 Lambda Layer Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Job information
+          echo "**Workflow:** ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Build results
+          if [ "${{ steps.changed-layers.outputs.layers }}" != "" ]; then
+            echo "### ✅ Layers Built Successfully" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            for layer in ${{ steps.changed-layers.outputs.layers }}; do
+              echo "- ✓ \`$layer\`" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "### ℹ️ No Layers Required Building" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No requirements.txt files were changed in this push." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Commit status
+          if [ "${{ steps.git-check.outputs.has_changes }}" == "true" ]; then
+            echo "### 📦 Changes Committed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Built dependencies have been automatically committed back to the repository." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### 📭 No Changes to Commit" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Build completed but no changes were detected (dependencies may already be up to date)." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "_Generated by GitHub Actions • Runtime: Python 3.12 • Image: AWS Lambda Container_" >> $GITHUB_STEP_SUMMARY
+      
+      - name: 💬 Notify on failure
+        if: failure()
+        run: |
+          echo "## ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The Lambda layer build process failed. Please check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Common Issues:" >> $GITHUB_STEP_SUMMARY
+          echo "- Invalid package name in requirements.txt" >> $GITHUB_STEP_SUMMARY
+          echo "- Package not compatible with Python 3.12" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker image pull failed" >> $GITHUB_STEP_SUMMARY
+          echo "- Insufficient permissions to commit changes" >> $GITHUB_STEP_SUMMARY
