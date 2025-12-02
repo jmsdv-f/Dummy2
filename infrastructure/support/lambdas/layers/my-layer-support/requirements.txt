@@ -1,3 +1,2 @@
-boto3==1.37.38
-botocore==1.37.38
-certifi==2023.7.22
+requests==2.32.4
+responses==0.25.8
