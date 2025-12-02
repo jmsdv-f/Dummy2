@@ -15,13 +15,13 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 print_header() {
-    echo -e "\n${BLUE}=========================================="
-    echo "Lambda Layer Builder"
-    echo "=========================================="
-    echo "Python Version: ${PYTHON_VERSION}"
-    echo "AWS Lambda Image: ${AWS_LAMBDA_IMAGE}"
-    echo "Project Root: ${PROJECT_ROOT}"
-    echo -e "==========================================${NC}\n"
+    echo -e "\n${BLUE}==========================================${NC}"
+    echo -e "${BLUE}Lambda Layer Builder${NC}"
+    echo -e "${BLUE}==========================================${NC}"
+    echo -e "${BLUE}Python Version: ${PYTHON_VERSION}${NC}"
+    echo -e "${BLUE}AWS Lambda Image: ${AWS_LAMBDA_IMAGE}${NC}"
+    echo -e "${BLUE}Project Root: ${PROJECT_ROOT}${NC}"
+    echo "${BLUE}==========================================${NC}"
 }
 
 check_docker() {
@@ -29,6 +29,7 @@ check_docker() {
     if ! docker info > /dev/null 2>&1; then
         echo -e "${RED}✗ Error: Docker is not running.${NC}"
         echo "  Please start Docker and try again."
+        exit 1
     fi
     echo -e "${GREEN}✓ Docker is running${NC}"
 }
@@ -52,7 +53,6 @@ build_layer() {
     # Clean previous build
     echo "  🧹 Cleaning previous build..."
     rm -rf "${layer_path}/python"
-    mkdir -p "${target_dir}"
     
     # Run pip install inside the Lambda container
     if docker run --rm \
@@ -63,7 +63,7 @@ build_layer() {
         pip install -r requirements.txt \
             -t "python" \
             --no-cache-dir \
-            --upgrade 2>&1 | tee pip_output_${layer_name}.log; then
+            --upgrade 2>&1; then
         
         # Verify the build
         if [ -d "${layer_path}/python" ] && [ "$(ls -A ${layer_path}/python)" ]; then
@@ -71,12 +71,10 @@ build_layer() {
             return 0
         else
             echo -e "${RED}  ✗ Failed to build ${layer_name}${NC}"
-            echo "  Check /tmp/pip_output_${layer_name}.log for details"
             return 1
         fi
     else
         echo -e "${RED}  ✗ Docker build failed for ${layer_name}${NC}"
-        echo "  Check /tmp/pip_output_${layer_name}.log for details"
         return 1
     fi
 }
@@ -91,8 +89,6 @@ main() {
     local target_layer="$1"
 
     if [ -n "$target_layer" ]; then
-        echo "🎯 Building layer: ${target_layer}"
-        
         # Search for the layer in all layer directories
         local found=false
         for layers_dir in "${LAYERS_DIR[@]}"; do
@@ -104,13 +100,8 @@ main() {
                     exit 1
                 fi
                 
-                if build_layer "${layer_path}"; then
-                    echo -e "\n${GREEN}✅ Successfully built ${target_layer}${NC}"
-                    exit 0
-                else
-                    echo -e "\n${RED}❌ Failed to build ${target_layer}${NC}"
-                    exit 1
-                fi
+                build_layer "${layer_path}" || exit 1
+
                 found=true
                 break
             fi
@@ -122,10 +113,11 @@ main() {
         fi
     else
         # Build all layers
+        echo " Building all layers..."
         echo "🔍 Searching for layers in ${LAYERS_DIR}..."
-        layer_count=0
-        skipped_count=0
-        failed_layers=()
+        local layer_count=0
+        local skipped_count=0
+        local failed_layers=()
 
         for layers_dir in "${LAYERS_DIR[@]}"; do
             for layer_path in "${layers_dir}"/*; do
@@ -145,34 +137,33 @@ main() {
                 fi
             done
         done
+
+        if [ ${layer_count} -eq 0 ] && [ ${#failed_layers[@]} -eq 0 ]; then
+            echo -e "${YELLOW}No layers found in ${LAYERS_DIR}${NC}"
+            exit 0
+        fi
+
+        # Print summary
+        echo -e "\n${BLUE}=========================================="
+        echo "Build Summary"
+        echo -e "==========================================${NC}"
+        
+
+        echo "✓ Successfully built: ${layer_count} layer(s)"
+        echo "⊘ Skipped: ${skipped_count} layer(s)"
+
+        if [ ${#failed_layers[@]} -gt 0 ]; then
+            echo -e "${RED}✗ Failed: ${#failed_layers[@]} layer(s)${NC}"
+            for layer in "${failed_layers[@]}"; do
+                echo "  - ${layer}"
+            done
+            exit 1
+        fi
+        
+        echo -e "${BLUE}==========================================${NC}\n"
     fi
     
-    # Print summary
-    echo -e "\n${BLUE}=========================================="
-    echo "Build Summary"
-    echo -e "==========================================${NC}"
-    
-    if [ ${layer_count} -eq 0 ] && [ ${#failed_layers[@]} -eq 0 ]; then
-        echo -e "${YELLOW}No layers found in ${LAYERS_DIR}${NC}"
-        exit 0
-    fi
-    
-    echo "✓ Successfully built: ${layer_count} layer(s)"
-    echo "⊘ Skipped: ${skipped_count} layer(s)"
-    
-    if [ ${#failed_layers[@]} -gt 0 ]; then
-        echo -e "${RED}✗ Failed: ${#failed_layers[@]} layer(s)${NC}"
-        for layer in "${failed_layers[@]}"; do
-            echo "  - ${layer}"
-        done
-        exit_code=1
-    else
-        exit_code=0
-    fi
-    
-    echo -e "${BLUE}==========================================${NC}\n"
-    
-    exit ${exit_code}
+    exit 0
 }
 
 # Run main function
