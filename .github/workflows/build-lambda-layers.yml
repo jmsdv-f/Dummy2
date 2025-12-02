@@ -85,13 +85,7 @@ jobs:
           # Build each changed layer
           for layer in ${{ steps.changed-layers.outputs.layers }}; do
             echo ""
-            echo "🏗️ Building layer: $layer"
-            if ./scripts/build_layers.sh "$layer"; then
-              echo "✅ Successfully built: $layer"
-            else
-              echo "❌ Failed to build: $layer"
-              exit 1
-            fi
+            ./scripts/build_layers.sh "$layer" || exit 1
           done
           
           echo ""
