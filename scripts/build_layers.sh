@@ -21,7 +21,7 @@ print_header() {
     echo -e "${BLUE}Python Version: ${PYTHON_VERSION}${NC}"
     echo -e "${BLUE}AWS Lambda Image: ${AWS_LAMBDA_IMAGE}${NC}"
     echo -e "${BLUE}Project Root: ${PROJECT_ROOT}${NC}"
-    echo "${BLUE}==========================================${NC}"
+    echo -e "${BLUE}==========================================${NC}"
 }
 
 check_docker() {
