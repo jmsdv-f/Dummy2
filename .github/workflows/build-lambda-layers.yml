@@ -112,22 +112,17 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
       
-      - name: 📤 Commit and push changes
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v9
         if: steps.git-check.outputs.has_changes == 'true'
-        run: |
-          # Create detailed commit message
-          COMMIT_MSG="chore: auto-build Lambda layers [skip ci]
-          
-          🤖 Automated build triggered by requirements.txt changes
-          
-          Built layers: ${{ steps.changed-layers.outputs.layers }}
-          Trigger: ${{ github.event.head_commit.message }}
-          Workflow: ${{ github.workflow }}
-          Run: ${{ github.run_number }}"
-          
-          git commit -m "$COMMIT_MSG"
-          
-          echo "📤 Pushing changes to repository..."
-          git push
-          
-          echo "✅ Changes committed and pushed successfully"
+        with:
+          add: 'infrastructure/*'
+          message: |
+            chore: auto-build Lambda layers [skip ci]
+            
+            🤖 Automated build triggered by requirements.txt changes
+            
+            Built layers: ${{ steps.changed-layers.outputs.layers }}
+            Trigger: ${{ github.event.head_commit.message }}
+            Workflow: ${{ github.workflow }}
+            Run: ${{ github.run_number }}
