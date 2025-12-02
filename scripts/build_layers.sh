@@ -88,31 +88,64 @@ main() {
     # Change to project root
     cd "${PROJECT_ROOT}"
     
+    local target_layer="$1"
 
-    # Build all layers
-    echo "🔍 Searching for layers in ${LAYERS_DIR}..."
-    layer_count=0
-    skipped_count=0
-    failed_layers=()
-
-    for layers_dir in "${LAYERS_DIR[@]}"; do
-        for layer_path in "${layers_dir}"/*; do
+    if [ -n "$target_layer" ]; then
+        echo "🎯 Building layer: ${target_layer}"
+        
+        # Search for the layer in all layer directories
+        local found=false
+        for layers_dir in "${LAYERS_DIR[@]}"; do
+            local layer_path="${layers_dir}/${target_layer}"
+            
             if [ -d "${layer_path}" ]; then
-                # Check if requirements.txt exists
                 if [ ! -f "${layer_path}/requirements.txt" ]; then
-                    echo -e "\n${YELLOW}⊘ Skipping $(basename ${layer_path}): no requirements.txt found${NC}"
-                    skipped_count=$((skipped_count + 1))
-                    continue
+                    echo -e "${RED}✗ Error: ${target_layer} has no requirements.txt${NC}"
+                    exit 1
                 fi
-
+                
                 if build_layer "${layer_path}"; then
-                    layer_count=$((layer_count + 1))
+                    echo -e "\n${GREEN}✅ Successfully built ${target_layer}${NC}"
+                    exit 0
                 else
-                    failed_layers+=("$(basename ${layer_path})")
+                    echo -e "\n${RED}❌ Failed to build ${target_layer}${NC}"
+                    exit 1
                 fi
+                found=true
+                break
             fi
         done
-    done
+        
+        if [ "$found" = false ]; then
+            echo -e "${RED}✗ Error: Layer '${target_layer}' not found in any layer directory${NC}"
+            exit 1
+        fi
+    else
+        # Build all layers
+        echo "🔍 Searching for layers in ${LAYERS_DIR}..."
+        layer_count=0
+        skipped_count=0
+        failed_layers=()
+
+        for layers_dir in "${LAYERS_DIR[@]}"; do
+            for layer_path in "${layers_dir}"/*; do
+                if [ -d "${layer_path}" ]; then
+                    # Check if requirements.txt exists
+                    if [ ! -f "${layer_path}/requirements.txt" ]; then
+                        echo -e "\n${YELLOW}⊘ Skipping $(basename ${layer_path}): no requirements.txt found${NC}"
+                        skipped_count=$((skipped_count + 1))
+                        continue
+                    fi
+
+                    if build_layer "${layer_path}"; then
+                        layer_count=$((layer_count + 1))
+                    else
+                        failed_layers+=("$(basename ${layer_path})")
+                    fi
+                fi
+            done
+        done
+    fi
     
     # Print summary
     echo -e "\n${BLUE}=========================================="
