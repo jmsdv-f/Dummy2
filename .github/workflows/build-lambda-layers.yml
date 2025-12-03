@@ -6,8 +6,13 @@ on:
       - '**'
       - '!main'
     paths:
-      - 'infrastructure/core/lambdas/layers/**/requirements.txt'
-      - 'infrastructure/support/lambdas/layers/**/requirements.txt'
+      - 'infrastructure/**/lambdas/layers/**/requirements.txt'
+  
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/**/lambdas/layers/**/requirements.txt'
 
 permissions:
   contents: write
