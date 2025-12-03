@@ -1,26 +1,10 @@
-################################################################################
-# GitHub Actions Workflow: Build Lambda Layers
-#
-# Purpose: Automatically build Lambda layers when requirements.txt files change
-#          and commit the built dependencies back to the repository
-#
-# Triggers:
-#   - Push to main branch with changes to lambda_layers/**/requirements.txt
-#   - Manual workflow dispatch
-#
-# What it does:
-#   1. Detects which layers have changed requirements.txt files
-#   2. Builds only the changed layers using Docker
-#   3. Commits the built packages back to the repository
-#   4. Skips CI on the automated commit to prevent infinite loops
-################################################################################
-
 name: Build Lambda Layers
 
 on:
   push:
     branches:
-      - main
+      - '**'
+      - '!main'
     paths:
       - 'infrastructure/core/lambdas/layers/**/requirements.txt'
       - 'infrastructure/support/lambdas/layers/**/requirements.txt'
@@ -34,55 +18,39 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 🔐 Generate GitHub App token
-        uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      
-      # Use the token in checkout
-      - name: 📥 Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
       
-      - name: ⚙️ Configure Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      
-      - name: 🐳 Set up Docker Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
-      - name: 🔍 Detect changed layers
+      - name: Detect changed layers
         id: changed-layers
         run: |
           # For push events, detect changed requirements.txt files
           CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep 'infrastructure/.*/lambdas/layers/.*/requirements.txt' || true)
           
           if [ -z "$CHANGED_FILES" ]; then
-            echo "ℹ️ No requirements.txt files changed"
+            echo "No requirements.txt files changed"
             echo "layers=" >> $GITHUB_OUTPUT
           else
-            echo "📝 Changed files:"
+            echo "Changed files:"
             echo "$CHANGED_FILES"
             
             # Extract unique layer directories
             LAYERS=$(echo "$CHANGED_FILES" | xargs -n1 dirname | sort -u | xargs -n1 basename | tr '\n' ' ')
             echo ""
-            echo "🎯 Layers to build: $LAYERS"
+            echo "Layers to build: $LAYERS"
             echo "layers=$LAYERS" >> $GITHUB_OUTPUT
           fi
       
-      - name: 📦 Pull AWS Lambda Docker image
+      - name: Pull AWS Lambda Docker image
         if: steps.changed-layers.outputs.layers != ''
-        run: |
-          echo "Pulling AWS Lambda Python 3.12 image..."
-          docker pull public.ecr.aws/lambda/python:3.12
+        run: docker pull public.ecr.aws/lambda/python:3.12
       
-      - name: 🔨 Build Lambda layers
+      - name: Build Lambda layers
         if: steps.changed-layers.outputs.layers != ''
         run: |
           chmod +x scripts/build_layers.sh
@@ -102,41 +70,8 @@ jobs:
           echo "All layers built successfully!"
           echo "=========================================="
       
-      - name: 🔎 Check for changes
-        id: git-check
-        run: |
-          # Stage all changes in lambda_layers directory
-          git add infrastructure/*/lambdas/layers/
-          
-          # Check if there are staged changes
-          if git diff --staged --quiet; then
-            echo "ℹ️ No changes to commit"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          else
-            echo "✅ Changes detected"
-            echo ""
-            echo "📊 Summary of changes:"
-            git diff --staged --stat
-            echo ""
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: 📤 Commit and push changes
-        if: steps.git-check.outputs.has_changes == 'true'
-        run: |
-          # Create detailed commit message
-          COMMIT_MSG="chore: auto-build Lambda layers [skip ci]
-          
-          🤖 Automated build triggered by requirements.txt changes
-          
-          Built layers: ${{ steps.changed-layers.outputs.layers }}
-          Trigger: ${{ github.event.head_commit.message }}
-          Workflow: ${{ github.workflow }}
-          Run: ${{ github.run_number }}"
-          
-          git commit -m "$COMMIT_MSG"
-          
-          echo "📤 Pushing changes to repository..."
-          git push
-          
-          echo "✅ Changes committed and pushed successfully"
+      - name: Commit and push changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: 'infrastructure/*/lambdas/layers/'
+          message: "chore: auto-build Lambda layers [skip ci] (Run: ${{ github.run_number }})"
