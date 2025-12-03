@@ -49,10 +49,12 @@ build_layer() {
         echo "    - $line"
     done < "${layer_path}/requirements.txt"
     echo ""
+
+    local target_dir="${layer_path}/python/lib/python${PYTHON_VERSION}/site-packages"
     
     # Clean previous build
     echo "  🧹 Cleaning previous build..."
-    rm -rf "${layer_path}/python"
+    rm -rf "${layer_path}/python/lib"
     
     # Run pip install inside the Lambda container
     if docker run --rm \
@@ -61,12 +63,12 @@ build_layer() {
         -w /var/task \
         "${AWS_LAMBDA_IMAGE}" \
         pip install -r requirements.txt \
-            -t "python" \
+            -t "python/lib/python${PYTHON_VERSION}/site-packages" \
             --no-cache-dir \
             --upgrade 2>&1; then
         
         # Verify the build
-        if [ -d "${layer_path}/python" ] && [ "$(ls -A ${layer_path}/python)" ]; then
+        if [ -d "${target_dir}" ] && [ "$(ls -A ${target_dir})" ]; then
             echo -e "\n${GREEN}  ✓ Successfully built ${layer_name}${NC}"
             return 0
         else
