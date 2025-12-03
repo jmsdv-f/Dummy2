@@ -7,12 +7,6 @@ on:
       - '!main'
     paths:
       - 'infrastructure/**/lambdas/layers/**/requirements.txt'
-  
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'infrastructure/**/lambdas/layers/**/requirements.txt'
 
 permissions:
   contents: write
@@ -78,5 +72,5 @@ jobs:
       - name: Commit and push changes
         uses: EndBug/add-and-commit@v9
         with:
-          add: 'infrastructure/*/lambdas/layers/'
+          add: 'infrastructure/*/lambdas/layers/*'
           message: "chore: auto-build Lambda layers [skip ci] (Run: ${{ github.run_number }})"
